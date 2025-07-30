@@ -514,6 +514,83 @@ impl Youtube {
         Ok(output_path)
     }
 
+    pub async fn download_raw_audio_stream_from_url(
+        &self,
+        url: String,
+        output: impl AsRef<str> + std::fmt::Debug + Display,
+    ) -> crate::error::Result<PathBuf> {
+        #[cfg(feature = "tracing")]
+        tracing::debug!("Downloading raw audio stream from URL: {}", url);
+
+        let video = self.fetch_video_infos(url).await?;
+        self.download_raw_audio_stream(&video, output).await
+    }
+
+    pub async fn download_raw_audio_stream(
+        &self,
+        video: &Video,
+        output: impl AsRef<str> + std::fmt::Debug + Display,
+    ) -> crate::error::Result<PathBuf> {
+        #[cfg(feature = "tracing")]
+        tracing::debug!("Downloading raw audio stream {}", video.title);
+
+        let output_str = output.as_ref();
+
+        // Check if we have a cached audio file for this video
+        #[cfg(feature = "cache")]
+        if let Some(download_cache) = &self.download_cache {
+            let path = self.output_dir.join(output_str);
+
+            // Try to find an audio format in the cache by video ID
+            let best_audio = video
+                .best_audio_format()
+                .ok_or(Error::MissingFormat("audio".to_string()))?;
+
+            if let Some((_, cached_path)) =
+                download_cache.get_by_video_and_format(&video.id, &best_audio.format_id)
+            {
+                #[cfg(feature = "tracing")]
+                tracing::debug!(
+                    "Using cached audio: {} (format: {})",
+                    video.id,
+                    best_audio.format_id
+                );
+
+                // Copy the file from the cache to the output directory
+                tokio::fs::copy(&cached_path, &path).await?;
+                return Ok(path);
+            }
+        }
+
+        let best_audio = video
+            .best_audio_format()
+            .ok_or(Error::MissingFormat("audio".to_string()))?;
+
+        let output_path = self.download_format(best_audio, &output_str).await?;
+
+        // Cache the download audio file
+        #[cfg(feature = "cache")]
+        if let Some(download_cache) = &self.download_cache {
+            #[cfg(feature = "tracing")]
+            tracing::debug!("Caching format with ID: {}", best_audio.format_id);
+
+            if let Err(_e) = download_cache
+                .put_file(
+                    &output_path,
+                    output_str,
+                    Some(video.id.clone()),
+                    Some(best_audio),
+                )
+                .await
+            {
+                #[cfg(feature = "tracing")]
+                tracing::warn!("Failed to cache format: {}", _e);
+            }
+        }
+
+        Ok(output_path)
+    }
+
     /// Downloads a format.
     /// Be careful, this function may take a while to execute.
     ///
