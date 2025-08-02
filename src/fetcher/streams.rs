@@ -478,7 +478,7 @@ impl Youtube {
             .to_str()
             .ok_or(Error::Path("Invalid output path".to_string()))?;
 
-        let args = vec!["-i", temp, "-c:a", "aac", "-b:a", "192k", output_str_path];
+        let args = vec!["-i", temp, "-c:a", "libmp3lame", "-b:a", "192k", "-ar", "44100", "-ac", "2", "-y", output_str_path];
 
         let executor = Executor {
             executable_path: self.libraries.ffmpeg.clone(),
